@@ -20,35 +20,43 @@ def get_headers():
 
 def get_book_info(isbn):
     try:
-        search_url = "https://www.amazon.com/s"
+        # Changed to Amazon India
+        search_url = "https://www.amazon.in/s"
         params = {"k": isbn}
-        r = requests.get(search_url, params=params, headers=get_headers(), timeout=10)
+        r = requests.get(search_url, params=params,
+                         headers=get_headers(), timeout=10)
         soup = BeautifulSoup(r.text, "lxml")
 
         # Fallback: any link with /dp/ in href
         product_link = soup.select_one("a[href*='/dp/']")
         if not product_link:
             return (isbn, None, None)
-        product_url = "https://www.amazon.com" + product_link.get("href")
+
+        # Changed to Amazon India domain
+        product_url = "https://www.amazon.in" + product_link.get("href")
 
         # Step 3: Visit product page
         r = requests.get(product_url, headers=get_headers(), timeout=10)
         soup = BeautifulSoup(r.text, "lxml")
 
-        # Step 4a: Extract dimensions (verified selector)
+        # Step 4a: Extract dimensions (updated selectors for Amazon India)
         dimensions = None
         dimension_selectors = [
             "#rpi-attribute-book_details-dimensions .rpi-attribute-value span",
             "[data-feature-name='detailBullets'] span:contains('Dimensions')",
             "#detailBullets_feature_div span:contains('x')",
             ".a-section:contains('Dimensions') + .a-section span",
+            # Additional selectors for Amazon India
+            "#feature-bullets .a-list-item:contains('Dimensions')",
+            ".a-unordered-list .a-list-item:contains('x')",
         ]
 
         for selector in dimension_selectors:
             try:
                 if "contains" in selector:
                     elements = soup.find_all(
-                        string=re.compile(r"\d+\.?\d*\s*x\s*\d+\.?\d*\s*x\s*\d+\.?\d*")
+                        string=re.compile(
+                            r"\d+\.?\d*\s*x\s*\d+\.?\d*\s*x\s*\d+\.?\d*")
                     )
                     if elements:
                         dimensions = elements[0].strip()
@@ -61,10 +69,44 @@ def get_book_info(isbn):
             except:
                 continue
 
-        # Step 4b: Extract image URL (verified selector)
-        img_element = soup.select_one("#landingImage")
-        image_url = img_element["src"] if img_element else None
+        # Try alternative approach for dimensions
+        if not dimensions:
+            try:
+                # Look for text patterns containing dimensions
+                dimension_pattern = re.compile(
+                    r"\d+\.?\d*\s*x\s*\d+\.?\d*\s*x\s*\d+\.?\d*\s*(cm|inches|in)"
+                )
+                dimension_text = soup.find(string=dimension_pattern)
+                if dimension_text:
+                    dimensions = dimension_text.strip()
+            except:
+                pass
 
+        # Step 4b: Extract image URL (updated selector for Amazon India)
+        image_url = None
+        image_selectors = [
+            "#landingImage",
+            "#imgBlkFront",
+            ".a-dynamic-image",
+            "#ebooksImgBlkFront",
+        ]
+
+        for selector in image_selectors:
+            img_element = soup.select_one(selector)
+            if img_element:
+                # Try different attributes
+                for attr in ["src", "data-src", "data-old-hires"]:
+                    if img_element.get(attr):
+                        image_url = img_element[attr]
+                        break
+                if image_url:
+                    break
+        if image_url and "amazon.in" in image_url:
+            search_url_com = "https://www.amazon.com/s"
+            r_com = requests.get(
+                search_url_com, params=params, headers=get_headers(), timeout=10
+            )
+            soup_com = BeautifulSoup(r_com.text, "lxml")
         return (isbn, dimensions, image_url)
 
     except Exception as e:
@@ -73,7 +115,7 @@ def get_book_info(isbn):
 
 
 if __name__ == "__main__":
-    excel_file_path = "exelbook.xlsx"
+    excel_file_path = "updatedexelbook.xlsx"
 
     try:
         # Load the Excel file to work with it
@@ -108,7 +150,8 @@ if __name__ == "__main__":
 
         # Get user input for row range
         start_row = int(input("Enter start row index (0-based): ").strip())
-        end_row = int(input("Enter end row index (0-based, inclusive): ").strip())
+        end_row = int(
+            input("Enter end row index (0-based, inclusive): ").strip())
 
         # Validate the row range to prevent errors
         if start_row < 0 or end_row >= len(df) or start_row > end_row:
@@ -128,7 +171,7 @@ if __name__ == "__main__":
 
             print(f"Processing row {i}, ISBN: {isbn}")
 
-            # Scrape book information from Amazon
+            # Scrape book information from Amazon India
             isbn_result, dimensions, image_url = get_book_info(isbn)
 
             # Update the DataFrame with scraped data
@@ -149,8 +192,8 @@ if __name__ == "__main__":
                 }
             )
 
-            # Delay to avoid being blocked by Amazon
-            time.sleep(2)
+            # Delay to avoid being blocked by Amazon (slightly longer for safety)
+            time.sleep(3)
 
         # Save the updated DataFrame back to Excel
         # We need to handle multiple sheets properly
@@ -163,10 +206,13 @@ if __name__ == "__main__":
             # Copy other sheets that weren't modified
             for other_sheet in sheet_names:
                 if other_sheet != sheet_name:
-                    other_df = pd.read_excel(excel_file_path, sheet_name=other_sheet)
-                    other_df.to_excel(writer, sheet_name=other_sheet, index=False)
+                    other_df = pd.read_excel(
+                        excel_file_path, sheet_name=other_sheet)
+                    other_df.to_excel(
+                        writer, sheet_name=other_sheet, index=False)
 
         print(f"\nExcel file '{excel_file_path}' has been updated!")
+        print("Now using Amazon India (amazon.in) for better coverage of Indian ISBNs")
 
         # Display results in terminal as a table
         if results:
