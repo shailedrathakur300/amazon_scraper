@@ -14,53 +14,63 @@ with sync_playwright() as p:
             "Chrome/128.0.0.0 Safari/537.36"
         }
     )
-    page.goto("https://www.amazon.com")
 
-    # 2. Wait for the search box
-    page.wait_for_selector("input#twotabsearchtextbox")
-    # 3. Type your search (title, ISBN, etc.)
-    isbn = "9780132350884"  # example ISBN for "Clean Code"
-    page.fill("input#twotabsearchtextbox", isbn)
+    # 1. Create a list of ISBNs to search for
+    isbns = ["9780132350884", "9780201633610", "9780134494166"]
 
-    # 4. Press Enter (submit search)
-    page.keyboard.press("Enter")
-    # 5. Wait for search results to load
-    page.wait_for_selector("div.s-main-slot")
-    print(page.title())
-    first_result_link = page.query_selector("div[data-cy='title-recipe'] a")
-    if first_result_link:
-        # Get the link's URL (href attribute)
-        link_url = first_result_link.get_attribute("href")
-        # Get the visible text of the link
-        link_text = first_result_link.inner_text()
-        first_result_link.click()
-        print(f"\nFound Result!")
-        print(f"Title: {link_text}")
-        print(f"URL: https://www.amazon.in{link_url}")
-        # 3. Extract the title
-        page.wait_for_selector("#productTitle")
+    # 2. Loop through each ISBN in the list
+    for isbn in isbns:
+        print(f"\n--- Searching for ISBN: {isbn} ---")
+        page.goto("https://www.amazon.com")
 
-        # 6. Extract and print the title
-        title = page.query_selector("#productTitle").inner_text()
-        print("Book Title:", title)
-        title_element = page.query_selector("#productTitle")
-        title = title_element.inner_text() if title_element else "Title not found"
-        # 4. Select the main image element using its ID: #landingImage
-        image_element = page.query_selector("#landingImage")
+        # 3. Wait for the search box
+        page.wait_for_selector("input#twotabsearchtextbox")
+        # 4. Type the current ISBN
+        page.fill("input#twotabsearchtextbox", isbn)
 
-        # 5. Get the 'src' attribute from the image element
-        image_url = (
-            image_element.get_attribute("src")
-            if image_element
-            else "Image URL not found"
-        )
+        # 5. Press Enter (submit search)
+        page.keyboard.press("Enter")
+        # 6. Wait for search results to load
+        page.wait_for_selector("div.s-main-slot")
 
-        print("\n--- Product Details ---")
-        print(f"Book Title: {title}")
-        print(f"Image URL: {image_url}")
+        first_result_link = page.query_selector("div[data-cy='title-recipe'] a")
+        if first_result_link:
+            # Get the link's URL (href attribute)
+            link_url = first_result_link.get_attribute("href")
+            # Get the visible text of the link
+            link_text = first_result_link.inner_text()
+            first_result_link.click()
+            print(f"Found Result!")
+            print(f"Title: {link_text}")
+            print(f"URL: https://www.amazon.com{link_url}") # Using .com to match the goto
+            
+            # Wait for the product page to load by waiting for the title
+            page.wait_for_selector("#productTitle")
 
-    else:
-        print("\nCould not find the first result link.")
+            # Extract and print the title
+            title_element = page.query_selector("#productTitle")
+            title = title_element.inner_text() if title_element else "Title not found"
+            
+            # Select the main image element using its ID: #landingImage
+            image_element = page.query_selector("#landingImage")
 
+            # Get the 'src' attribute from the image element
+            image_url = (
+                image_element.get_attribute("src")
+                if image_element
+                else "Image URL not found"
+            )
+
+            print("\n--- Product Details ---")
+            print(f"Book Title: {title}")
+            print(f"Image URL: {image_url}")
+
+        else:
+            print(f"\nCould not find the first result link for ISBN: {isbn}")
+        
+        # A short delay before the next search
+        time.sleep(2)
+
+    print("\n--- Scraping finished ---")
     time.sleep(5)
     browser.close()
