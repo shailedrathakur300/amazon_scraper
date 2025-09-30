@@ -31,7 +31,7 @@ def get_book_info(page: Page, isbn: str):
             return isbn, "Result link not found", "Dimensions not found"
 
         # 4. Click the link and wait for the product page to load
-        first_result_link.click()
+        first_result_link.click(timeout=5000)
         page.wait_for_selector("#productTitle")
 
         # 5. Extract the title
@@ -40,33 +40,52 @@ def get_book_info(page: Page, isbn: str):
             title_element.inner_text().strip() if title_element else "Title not found"
         )
 
-        # MODIFICATION: Replaced image URL extraction with dimension scraping.
-        # 6. Extract the dimensions with a primary and fallback method.
+        # 6. Extract the dimensions.
         dimensions = "Dimensions not found"
-        
-        # Primary Method: Check inside the detail bullets list.
-        detail_bullets = page.query_selector("#detailBullets_feature_div")
-        if detail_bullets:
-            dimension_item = detail_bullets.query_selector("li:has-text('Dimensions')")
-            if dimension_item:
-                span_element = dimension_item.query_selector("span.a-list-item > span:nth-of-type(2)")
-                if span_element:
-                    dimensions = span_element.inner_text().strip()
+        try:
+            # This single locator is robust. It finds any list item or table row
+            # containing the text "Dimensions" and gets its full text content.
+            dimension_locator = page.locator("li:has-text('Dimensions'), tr:has-text('Dimensions')").first
+            
+            # Get the full text (e.g., "Dimensions : 12.85 x 0.99 x 19.84 cm")
+            full_text = dimension_locator.inner_text(timeout=5000)
+            
+            # Split the text at the colon and take the second part.
+            dimensions = full_text.split(':', 1)[-1].strip()
+            # dimensions = full_text.lower().replace("dimensions", "").replace(":", "").strip()
 
-        # Fallback Method: If not found, check the product details table.
-        if dimensions == "Dimensions not found":
-            details_table = page.query_selector("#productDetailsTable")
-            if details_table:
-                rows = details_table.query_selector_all("tr")
-                for row in rows:
-                    header = row.query_selector("th")
-                    if header and "Dimensions" in header.inner_text():
-                        value_cell = row.query_selector("td")
-                        if value_cell:
-                            dimensions = value_cell.inner_text().strip()
-                            break
-        
-        # MODIFICATION: Updated the console log to show dimensions.
+        except Exception as e:
+            print(f"Could not find dimensions for ISBN {isbn}. Using default value.")
+
+        """
+                # MODIFICATION: Replaced image URL extraction with dimension scraping.
+                # 6. Extract the dimensions with a primary and fallback method.
+                dimensions = "Dimensions not found"
+                
+                # Primary Method: Check inside the detail bullets list.
+                detail_bullets = page.query_selector("#detailBullets_feature_div")
+                if detail_bullets:
+                    dimension_item = detail_bullets.query_selector("li:has-text('Dimensions')")
+                    if dimension_item:
+                        span_element = dimension_item.query_selector("span.a-list-item > span:nth-of-type(2)")
+                        if span_element:
+                            dimensions = span_element.inner_text().strip()
+
+                # Fallback Method: If not found, check the product details table.
+                if dimensions == "Dimensions not found":
+                    details_table = page.query_selector("#productDetailsTable")
+                    if details_table:
+                        rows = details_table.query_selector_all("tr")
+                        for row in rows:
+                            header = row.query_selector("th")
+                            if header and "Dimensions" in header.inner_text():
+                                value_cell = row.query_selector("td")
+                                if value_cell:
+                                    dimensions = value_cell.inner_text().strip()
+                                    break
+                
+                # MODIFICATION: Updated the console log to show dimensions.
+        """
         print("--- Product Details ---")
         print(f"Book Title: {title}")
         print(f"Scraped Dimensions: {dimensions}")
