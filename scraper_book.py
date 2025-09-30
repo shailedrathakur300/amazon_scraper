@@ -6,6 +6,7 @@ import pandas as pd
 import time
 
 
+# MODIFICATION: The function now returns dimensions instead of image_url.
 def get_book_info(page: Page, isbn: str):
     """
     Searches for a book by its ISBN on Amazon and scrapes its details.
@@ -26,7 +27,8 @@ def get_book_info(page: Page, isbn: str):
         first_result_link = page.query_selector("div[data-cy='title-recipe'] a")
         if not first_result_link:
             print(f"Could not find the first result link for ISBN: {isbn}")
-            return isbn, "Result link not found", "Result link not found"
+            # MODIFICATION: Return dimensions as "Not found" on failure.
+            return isbn, "Result link not found", "Dimensions not found"
 
         # 4. Click the link and wait for the product page to load
         first_result_link.click()
@@ -34,55 +36,78 @@ def get_book_info(page: Page, isbn: str):
 
         # 5. Extract the title
         title_element = page.query_selector("#productTitle")
-        title = title_element.inner_text().strip() if title_element else "Title not found"
+        title = (
+            title_element.inner_text().strip() if title_element else "Title not found"
+        )
 
-        # 6. Extract the image URL
-        image_element = page.query_selector("#landingImage")
-        image_url = image_element.get_attribute("src") if image_element else "Image URL not found"
+        # MODIFICATION: Replaced image URL extraction with dimension scraping.
+        # 6. Extract the dimensions with a primary and fallback method.
+        dimensions = "Dimensions not found"
+        
+        # Primary Method: Check inside the detail bullets list.
+        detail_bullets = page.query_selector("#detailBullets_feature_div")
+        if detail_bullets:
+            dimension_item = detail_bullets.query_selector("li:has-text('Dimensions')")
+            if dimension_item:
+                span_element = dimension_item.query_selector("span.a-list-item > span:nth-of-type(2)")
+                if span_element:
+                    dimensions = span_element.inner_text().strip()
 
+        # Fallback Method: If not found, check the product details table.
+        if dimensions == "Dimensions not found":
+            details_table = page.query_selector("#productDetailsTable")
+            if details_table:
+                rows = details_table.query_selector_all("tr")
+                for row in rows:
+                    header = row.query_selector("th")
+                    if header and "Dimensions" in header.inner_text():
+                        value_cell = row.query_selector("td")
+                        if value_cell:
+                            dimensions = value_cell.inner_text().strip()
+                            break
+        
+        # MODIFICATION: Updated the console log to show dimensions.
         print("--- Product Details ---")
         print(f"Book Title: {title}")
-        print(f"Image URL: {image_url}")
+        print(f"Scraped Dimensions: {dimensions}")
 
-        return isbn, title, image_url
+        # MODIFICATION: Return the scraped dimensions instead of image URL.
+        return isbn, title, dimensions
 
     except Exception as e:
         print(f"An error occurred while processing ISBN {isbn}: {e}")
+        # MODIFICATION: Return dimensions as "Error" on exception.
         return isbn, "Error", str(e)
 
 
 if __name__ == "__main__":
-    # Path to your Excel file. Assuming it's in the 'old' directory based on your workspace.
-    excel_file_path = "old/updatedexelbook.xlsx"
+    excel_file_path = "updated_September.xlsx"
 
     try:
-        # Load the Excel file to work with it
-        excel_file = pd.ExcelFile(excel_file_path)
-        sheet_names = excel_file.sheet_names
+        # Read all sheets into a dictionary of DataFrames
+        all_sheets = pd.read_excel(excel_file_path, sheet_name=None)
+        sheet_names = list(all_sheets.keys())
 
         print(f"Available sheets: {sheet_names}")
         sheet_name = input("Enter the sheet name to process: ").strip()
 
-        if sheet_name not in sheet_names:
+        if sheet_name not in all_sheets:
             print("Invalid sheet name. Exiting.")
             exit()
 
-        # Read the specific sheet into a DataFrame
-        df = pd.read_excel(excel_file_path, sheet_name=sheet_name)
-        print(f"Total rows in sheet: {len(df)}")
+        # Get the specific DataFrame to work on
+        df = all_sheets[sheet_name]
+        print(f"Total rows in sheet '{sheet_name}': {len(df)}")
 
-        # Check if required columns exist
         if "ISBN 13" not in df.columns:
             print("Error: 'ISBN 13' column not found. Exiting.")
             exit()
 
-        # Add columns for the scraped data if they don't exist
-        if "Scraped Title" not in df.columns:
-            df["Scraped Title"] = ""
-        if "Image URL" not in df.columns:
-            df["Image URL"] = ""
+        # MODIFICATION: Add "Scraped Dimensions" column instead of "Image URL".
+        # This will not touch an existing "Dimensions" column.
+        if "Scraped Dimensions" not in df.columns:
+            df["Scraped Dimensions"] = ""
 
-        # Get user input for row range
         start_row = int(input("Enter start row index (0-based): ").strip())
         end_row = int(input("Enter end row index (0-based, inclusive): ").strip())
 
@@ -90,7 +115,6 @@ if __name__ == "__main__":
             print("Invalid row range. Exiting.")
             exit()
 
-        # Launch the browser once before the loop
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chrome", headless=False)
             page = browser.new_page()
@@ -104,7 +128,6 @@ if __name__ == "__main__":
 
             results = []
             for i in range(start_row, end_row + 1):
-                # Ensure ISBN is a clean string
                 isbn_val = df.loc[i, "ISBN 13"]
                 isbn = str(isbn_val).strip() if pd.notna(isbn_val) else ""
 
@@ -113,35 +136,38 @@ if __name__ == "__main__":
                     continue
 
                 print(f"Processing row {i}, ISBN: {isbn}")
+                # MODIFICATION: The function now returns dimensions.
+                isbn_result, title, dimensions = get_book_info(page, isbn)
 
-                # Get book info using the single browser page
-                isbn_result, title, image_url = get_book_info(page, isbn)
-
-                # Update the DataFrame with the new data
+                # MODIFICATION: Update the "Scraped Dimensions" column.
+                df.loc[i, "Scraped Dimensions"] = dimensions
+                # MODIFICATION: Also update the title in case it was corrected.
                 df.loc[i, "Scraped Title"] = title
-                df.loc[i, "Image URL"] = image_url
 
+
+                # MODIFICATION: Update the results list to include dimensions.
                 results.append(
                     {
                         "Row": i,
                         "ISBN": isbn_result,
                         "Title": title,
-                        "Image URL": image_url if image_url else "Not found",
+                        "Scraped Dimensions": dimensions,
                     }
                 )
+                time.sleep(3)
 
-                time.sleep(3)  # Wait before the next request
-
-            # Close the browser after the loop is finished
             browser.close()
 
-        # Save the updated DataFrame back to the same sheet in the Excel file
-        with pd.ExcelWriter(
-            excel_file_path, engine="openpyxl", mode="a", if_sheet_exists="replace"
-        ) as writer:
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
+        # **REVISED SAVING LOGIC**
+        # Update the dictionary of sheets with our modified DataFrame
+        all_sheets[sheet_name] = df
 
-        print(f"\nExcel file '{excel_file_path}' has been updated!")
+        # Write all sheets back to the Excel file, overwriting it
+        with pd.ExcelWriter(excel_file_path, engine="openpyxl") as writer:
+            for sheet, data in all_sheets.items():
+                data.to_excel(writer, sheet_name=sheet, index=False)
+
+        print(f"\nExcel file '{excel_file_path}' has been successfully updated!")
 
         if results:
             result_df = pd.DataFrame(results)
@@ -154,3 +180,4 @@ if __name__ == "__main__":
         print(f"Error: The file '{excel_file_path}' was not found.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+
